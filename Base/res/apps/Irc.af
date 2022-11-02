@@ -1,0 +1,4 @@
+[App]
+Name=Irc
+Executable=/bin/Irc
+Category=Internet
