@@ -63,11 +63,14 @@ public:
     ErrorOr<JsonValue, WebDriverError> get_element_css_value(JsonValue const& payload, StringView element_id, StringView property_name);
     ErrorOr<JsonValue, WebDriverError> get_element_text(JsonValue const& payload, StringView element_id);
     ErrorOr<JsonValue, WebDriverError> get_element_tag_name(JsonValue const& payload, StringView element_id);
+    ErrorOr<JsonValue, WebDriverError> execute_script(JsonValue const& payload);
+    ErrorOr<JsonValue, WebDriverError> execute_async_script(JsonValue const& payload);
     ErrorOr<JsonValue, WebDriverError> get_all_cookies();
     ErrorOr<JsonValue, WebDriverError> get_named_cookie(String const& name);
     ErrorOr<JsonValue, WebDriverError> add_cookie(JsonValue const& payload);
     ErrorOr<JsonValue, WebDriverError> delete_cookie(StringView const& name);
     ErrorOr<JsonValue, WebDriverError> delete_all_cookies();
+    ErrorOr<JsonValue, WebDriverError> take_screenshot();
 
 private:
     void delete_cookies(Optional<StringView> const& name = {});

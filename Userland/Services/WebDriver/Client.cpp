@@ -49,11 +49,14 @@ Vector<Client::Route> Client::s_routes = {
     { HTTP::HttpRequest::Method::GET, { "session", ":session_id", "element", ":element_id", "css", ":property_name" }, &Client::handle_get_element_css_value },
     { HTTP::HttpRequest::Method::GET, { "session", ":session_id", "element", ":element_id", "text" }, &Client::handle_get_element_text },
     { HTTP::HttpRequest::Method::GET, { "session", ":session_id", "element", ":element_id", "name" }, &Client::handle_get_element_tag_name },
+    { HTTP::HttpRequest::Method::POST, { "session", ":session_id", "execute", "sync" }, &Client::handle_execute_script },
+    { HTTP::HttpRequest::Method::POST, { "session", ":session_id", "execute", "async" }, &Client::handle_execute_async_script },
     { HTTP::HttpRequest::Method::GET, { "session", ":session_id", "cookie" }, &Client::handle_get_all_cookies },
     { HTTP::HttpRequest::Method::GET, { "session", ":session_id", "cookie", ":name" }, &Client::handle_get_named_cookie },
     { HTTP::HttpRequest::Method::POST, { "session", ":session_id", "cookie" }, &Client::handle_add_cookie },
     { HTTP::HttpRequest::Method::DELETE, { "session", ":session_id", "cookie", ":name" }, &Client::handle_delete_cookie },
     { HTTP::HttpRequest::Method::DELETE, { "session", ":session_id", "cookie" }, &Client::handle_delete_all_cookies },
+    { HTTP::HttpRequest::Method::GET, { "session", ":session_id", "screenshot" }, &Client::handle_take_screenshot },
 };
 
 Client::Client(NonnullOwnPtr<Core::Stream::BufferedTCPSocket> socket, Core::Object* parent)
@@ -197,7 +200,12 @@ ErrorOr<void> Client::send_response(StringView content, HTTP::HttpRequest const&
 
     auto builder_contents = builder.to_byte_buffer();
     TRY(m_socket->write(builder_contents));
-    TRY(m_socket->write(content.bytes()));
+
+    while (!content.is_empty()) {
+        auto bytes_sent = TRY(m_socket->write(content.bytes()));
+        content = content.substring_view(bytes_sent);
+    }
+
     log_response(200, request);
 
     auto keep_alive = false;
@@ -223,6 +231,8 @@ ErrorOr<void> Client::send_error_response(WebDriverError const& error, HTTP::Htt
     result.set("error", error.error);
     result.set("message", error.message);
     result.set("stacktrace", "");
+    if (error.data.has_value())
+        result.set("data", *error.data);
 
     StringBuilder content_builder;
     result.serialize(content_builder);
@@ -677,6 +687,26 @@ ErrorOr<JsonValue, WebDriverError> Client::handle_get_element_tag_name(Vector<St
     return make_json_value(result);
 }
 
+// 13.2.1 Execute Script, https://w3c.github.io/webdriver/#dfn-execute-script
+// POST /session/{session id}/execute/sync
+ErrorOr<JsonValue, WebDriverError> Client::handle_execute_script(Vector<StringView> const& parameters, JsonValue const& payload)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/execute/sync");
+    auto* session = TRY(find_session_with_id(parameters[0]));
+    auto result = TRY(session->execute_script(payload));
+    return make_json_value(result);
+}
+
+// 13.2.2 Execute Async Script, https://w3c.github.io/webdriver/#dfn-execute-async-script
+// POST /session/{session id}/execute/async
+ErrorOr<JsonValue, WebDriverError> Client::handle_execute_async_script(Vector<StringView> const& parameters, JsonValue const& payload)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/execute/async");
+    auto* session = TRY(find_session_with_id(parameters[0]));
+    auto result = TRY(session->execute_async_script(payload));
+    return make_json_value(result);
+}
+
 // 14.1 Get All Cookies, https://w3c.github.io/webdriver/#dfn-get-all-cookies
 // GET /session/{session id}/cookie
 ErrorOr<JsonValue, WebDriverError> Client::handle_get_all_cookies(Vector<StringView> const& parameters, JsonValue const&)
@@ -724,6 +754,16 @@ ErrorOr<JsonValue, WebDriverError> Client::handle_delete_all_cookies(Vector<Stri
     dbgln_if(WEBDRIVER_DEBUG, "Handling DELETE /session/<session_id>/cookie");
     auto* session = TRY(find_session_with_id(parameters[0]));
     auto result = TRY(session->delete_all_cookies());
+    return make_json_value(result);
+}
+
+// 17.1 Take Screenshot, https://w3c.github.io/webdriver/#take-screenshot
+// GET /session/{session id}/screenshot
+ErrorOr<JsonValue, WebDriverError> Client::handle_take_screenshot(Vector<StringView> const& parameters, JsonValue const&)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling GET /session/<session_id>/screenshot");
+    auto* session = TRY(find_session_with_id(parameters[0]));
+    auto result = TRY(session->take_screenshot());
     return make_json_value(result);
 }
 

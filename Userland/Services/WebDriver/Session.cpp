@@ -10,16 +10,20 @@
 #include "Session.h"
 #include "BrowserConnection.h"
 #include "Client.h"
+#include <AK/Base64.h>
 #include <AK/NumericLimits.h>
 #include <AK/Time.h>
+#include <AK/URL.h>
 #include <LibCore/LocalServer.h>
 #include <LibCore/Stream.h>
 #include <LibCore/System.h>
+#include <LibGfx/PNGWriter.h>
 #include <LibGfx/Point.h>
 #include <LibGfx/Rect.h>
 #include <LibGfx/Size.h>
 #include <LibWeb/Cookie/Cookie.h>
 #include <LibWeb/Cookie/ParsedCookie.h>
+#include <LibWeb/WebDriver/ExecuteScript.h>
 #include <unistd.h>
 
 namespace WebDriver {
@@ -896,6 +900,119 @@ ErrorOr<JsonValue, WebDriverError> Session::get_element_tag_name(JsonValue const
     return JsonValue(qualified_name);
 }
 
+struct ScriptArguments {
+    String script;
+    JsonArray const& arguments;
+};
+
+// https://w3c.github.io/webdriver/#dfn-extract-the-script-arguments-from-a-request
+static ErrorOr<ScriptArguments, WebDriverError> extract_the_script_arguments_from_a_request(JsonValue const& payload)
+{
+    if (!payload.is_object())
+        return WebDriverError::from_code(ErrorCode::InvalidArgument, "Payload is not a JSON object");
+
+    auto const& properties = payload.as_object();
+
+    // 1. Let script be the result of getting a property named script from the parameters.
+    // 2. If script is not a String, return error with error code invalid argument.
+    if (!properties.has_string("script"sv))
+        return WebDriverError::from_code(ErrorCode::InvalidArgument, "Payload doesn't have a 'script' string property");
+    auto script = properties.get("script"sv).as_string();
+
+    // 3. Let args be the result of getting a property named args from the parameters.
+    // 4. If args is not an Array return error with error code invalid argument.
+    if (!properties.has_array("args"sv))
+        return WebDriverError::from_code(ErrorCode::InvalidArgument, "Payload doesn't have an 'args' string property");
+    auto const& args = properties.get("args"sv).as_array();
+
+    // 5. Let arguments be the result of calling the JSON deserialize algorithm with arguments args.
+    // NOTE: We forward the JSON array to the Browser and then WebContent process over IPC, so this is not necessary.
+
+    // 6. Return success with data script and arguments.
+    return ScriptArguments { script, args };
+}
+
+// 13.2.1 Execute Script, https://w3c.github.io/webdriver/#dfn-execute-script
+ErrorOr<JsonValue, WebDriverError> Session::execute_script(JsonValue const& payload)
+{
+    // 1. Let body and arguments be the result of trying to extract the script arguments from a request with argument parameters.
+    auto const& [body, arguments] = TRY(extract_the_script_arguments_from_a_request(payload));
+
+    // 2. If the current browsing context is no longer open, return error with error code no such window.
+    TRY(check_for_open_top_level_browsing_context_or_return_error());
+
+    // FIXME: 3. Handle any user prompts, and return its value if it is an error.
+
+    // 4., 5.1-5.3.
+    Vector<String> json_arguments;
+    arguments.for_each([&](JsonValue const& json_value) {
+        // NOTE: serialized() instead of to_string() ensures proper quoting.
+        json_arguments.append(json_value.serialized<StringBuilder>());
+    });
+
+    dbgln("Executing script with 'args': [{}] / 'body':\n{}", String::join(", "sv, json_arguments), body);
+    auto execute_script_response = m_browser_connection->execute_script(body, json_arguments, m_timeouts_configuration.script_timeout, false);
+    dbgln("Executing script returned: {}", execute_script_response.json_result());
+
+    // NOTE: This is assumed to be a valid JSON value.
+    auto result = MUST(JsonValue::from_string(execute_script_response.json_result()));
+
+    switch (execute_script_response.result_type()) {
+    // 6. If promise is still pending and the session script timeout is reached, return error with error code script timeout.
+    case Web::WebDriver::ExecuteScriptResultType::Timeout:
+        return WebDriverError::from_code(ErrorCode::ScriptTimeoutError, "Script timed out");
+    // 7. Upon fulfillment of promise with value v, let result be a JSON clone of v, and return success with data result.
+    case Web::WebDriver::ExecuteScriptResultType::PromiseResolved:
+        return result;
+    // 8. Upon rejection of promise with reason r, let result be a JSON clone of r, and return error with error code javascript error and data result.
+    case Web::WebDriver::ExecuteScriptResultType::PromiseRejected:
+    case Web::WebDriver::ExecuteScriptResultType::JavaScriptError:
+        return WebDriverError::from_code(ErrorCode::JavascriptError, "Script returned an error", move(result));
+    default:
+        VERIFY_NOT_REACHED();
+    }
+}
+
+// 13.2.2 Execute Async Script, https://w3c.github.io/webdriver/#dfn-execute-async-script
+ErrorOr<JsonValue, WebDriverError> Session::execute_async_script(JsonValue const& parameters)
+{
+    // 1. Let body and arguments by the result of trying to extract the script arguments from a request with argument parameters.
+    auto [body, arguments] = TRY(extract_the_script_arguments_from_a_request(parameters));
+
+    // 2. If the current browsing context is no longer open, return error with error code no such window.
+    TRY(check_for_open_top_level_browsing_context_or_return_error());
+
+    // FIXME: 3. Handle any user prompts, and return its value if it is an error.
+
+    // 4., 5.1-5.11.
+    Vector<String> json_arguments;
+    arguments.for_each([&](JsonValue const& json_value) {
+        // NOTE: serialized() instead of to_string() ensures proper quoting.
+        json_arguments.append(json_value.serialized<StringBuilder>());
+    });
+
+    dbgln("Executing async script with 'args': [{}] / 'body':\n{}", String::join(", "sv, json_arguments), body);
+    auto execute_script_response = m_browser_connection->execute_script(body, json_arguments, m_timeouts_configuration.script_timeout, true);
+    dbgln("Executing async script returned: {}", execute_script_response.json_result());
+
+    // NOTE: This is assumed to be a valid JSON value.
+    auto result = MUST(JsonValue::from_string(execute_script_response.json_result()));
+
+    switch (execute_script_response.result_type()) {
+    // 6. If promise is still pending and the session script timeout is reached, return error with error code script timeout.
+    case Web::WebDriver::ExecuteScriptResultType::Timeout:
+        return WebDriverError::from_code(ErrorCode::ScriptTimeoutError, "Script timed out");
+    // 7. Upon fulfillment of promise with value v, let result be a JSON clone of v, and return success with data result.
+    case Web::WebDriver::ExecuteScriptResultType::PromiseResolved:
+        return result;
+    // 8. Upon rejection of promise with reason r, let result be a JSON clone of r, and return error with error code javascript error and data result.
+    case Web::WebDriver::ExecuteScriptResultType::PromiseRejected:
+        return WebDriverError::from_code(ErrorCode::JavascriptError, "Script returned an error", move(result));
+    default:
+        VERIFY_NOT_REACHED();
+    }
+}
+
 // https://w3c.github.io/webdriver/#dfn-serialized-cookie
 static JsonObject serialize_cookie(Web::Cookie::Cookie const& cookie)
 {
@@ -1121,6 +1238,54 @@ ErrorOr<JsonValue, WebDriverError> Session::delete_all_cookies()
 
     // 4. Return success with data null.
     return JsonValue();
+}
+
+// https://w3c.github.io/webdriver/#dfn-encoding-a-canvas-as-base64
+static ErrorOr<String, WebDriverError> encode_bitmap_as_canvas_element(Gfx::Bitmap const& bitmap)
+{
+    // FIXME: 1. If the canvas element’s bitmap’s origin-clean flag is set to false, return error with error code unable to capture screen.
+
+    // 2. If the canvas element’s bitmap has no pixels (i.e. either its horizontal dimension or vertical dimension is zero) then return error with error code unable to capture screen.
+    if (bitmap.width() == 0 || bitmap.height() == 0)
+        return WebDriverError::from_code(ErrorCode::UnableToCaptureScreen, "Captured screenshot is empty"sv);
+
+    // 3. Let file be a serialization of the canvas element’s bitmap as a file, using "image/png" as an argument.
+    auto file = Gfx::PNGWriter::encode(bitmap);
+
+    // 4. Let data url be a data: URL representing file. [RFC2397]
+    auto data_url = AK::URL::create_with_data("image/png"sv, encode_base64(file), true).to_string();
+
+    // 5. Let index be the index of "," in data url.
+    auto index = data_url.find(',');
+    VERIFY(index.has_value());
+
+    // 6. Let encoded string be a substring of data url using (index + 1) as the start argument.
+    auto encoded_string = data_url.substring(*index + 1);
+
+    // 7. Return success with data encoded string.
+    return encoded_string;
+}
+
+// 17.1 Take Screenshot, https://w3c.github.io/webdriver/#take-screenshot
+ErrorOr<JsonValue, WebDriverError> Session::take_screenshot()
+{
+    // 1. If the current top-level browsing context is no longer open, return error with error code no such window.
+    TRY(check_for_open_top_level_browsing_context_or_return_error());
+
+    // 2. When the user agent is next to run the animation frame callbacks:
+    //     a. Let root rect be the current top-level browsing context’s document element’s rectangle.
+    //     b. Let screenshot result be the result of trying to call draw a bounding box from the framebuffer, given root rect as an argument.
+    auto screenshot = m_browser_connection->take_screenshot();
+    if (!screenshot.is_valid())
+        return WebDriverError::from_code(ErrorCode::UnableToCaptureScreen, "Unable to capture screenshot"sv);
+
+    //     c. Let canvas be a canvas element of screenshot result’s data.
+    //     d. Let encoding result be the result of trying encoding a canvas as Base64 canvas.
+    //     e. Let encoded string be encoding result’s data.
+    auto encoded_string = TRY(encode_bitmap_as_canvas_element(*screenshot.bitmap()));
+
+    // 3. Return success with data encoded string.
+    return encoded_string;
 }
 
 }

@@ -14,8 +14,10 @@
 #include "CookieJar.h"
 #include "InspectorWidget.h"
 #include "Tab.h"
+#include <AK/LexicalPath.h>
 #include <Applications/Browser/BrowserWindowGML.h>
 #include <LibConfig/Client.h>
+#include <LibCore/DateTime.h>
 #include <LibCore/StandardPaths.h>
 #include <LibCore/Stream.h>
 #include <LibCore/Version.h>
@@ -33,12 +35,14 @@
 #include <LibGUI/TabWidget.h>
 #include <LibGUI/ToolbarContainer.h>
 #include <LibGUI/Widget.h>
+#include <LibGfx/PNGWriter.h>
 #include <LibJS/Interpreter.h>
 #include <LibWeb/CSS/PreferredColorScheme.h>
 #include <LibWeb/Dump.h>
 #include <LibWeb/Layout/InitialContainingBlock.h>
 #include <LibWeb/Loader/ResourceLoader.h>
 #include <LibWebView/OutOfProcessWebView.h>
+#include <LibWebView/WebContentClient.h>
 
 namespace Browser {
 
@@ -239,6 +243,14 @@ void BrowserWindow::build_menus()
         },
         this);
     m_inspect_dom_node_action->set_status_tip("Open inspector for this element");
+
+    m_take_screenshot_action = GUI::Action::create(
+        "&Take Screenshot"sv, g_icon_bag.filetype_image, [this](auto&) {
+            if (auto result = take_screenshot(); result.is_error())
+                GUI::MessageBox::show_error(this, String::formatted("{}", result.error()));
+        },
+        this);
+    m_take_screenshot_action->set_status_tip("Save a screenshot of the current tab to the Downloads directory"sv);
 
     auto& inspect_menu = add_menu("&Inspect");
     inspect_menu.add_action(*m_view_source_action);
@@ -583,6 +595,10 @@ void BrowserWindow::create_new_tab(URL url, bool activate)
         return active_tab().view().get_session_storage_entries();
     };
 
+    new_tab.on_take_screenshot = [this]() {
+        return active_tab().view().take_screenshot();
+    };
+
     new_tab.webdriver_endpoints().on_get_document_element = [this]() {
         return active_tab().view().get_document_element();
     };
@@ -613,6 +629,10 @@ void BrowserWindow::create_new_tab(URL url, bool activate)
 
     new_tab.webdriver_endpoints().on_get_element_tag_name = [this](i32 element_id) {
         return active_tab().view().get_element_tag_name(element_id);
+    };
+
+    new_tab.webdriver_endpoints().on_execute_script = [this](String const& body, Vector<String> const& json_arguments, Optional<u64> const& timeout, bool async) {
+        return active_tab().view().webdriver_execute_script(body, json_arguments, timeout, async);
     };
 
     new_tab.load(url);
@@ -712,6 +732,26 @@ void BrowserWindow::event(Core::Event& event)
     }
 
     Window::event(event);
+}
+
+ErrorOr<void> BrowserWindow::take_screenshot()
+{
+    if (!active_tab().on_take_screenshot)
+        return {};
+
+    auto bitmap = active_tab().on_take_screenshot();
+    if (!bitmap.is_valid())
+        return Error::from_string_view("Failed to take a screenshot of the current tab"sv);
+
+    LexicalPath path { Core::StandardPaths::downloads_directory() };
+    path = path.append(Core::DateTime::now().to_string("screenshot-%Y-%m-%d-%H-%M-%S.png"sv));
+
+    auto encoded = Gfx::PNGWriter::encode(*bitmap.bitmap());
+
+    auto screenshot_file = TRY(Core::Stream::File::open(path.string(), Core::Stream::OpenMode::Write));
+    TRY(screenshot_file->write(encoded));
+
+    return {};
 }
 
 }

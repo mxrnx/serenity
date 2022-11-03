@@ -49,6 +49,7 @@ public:
     virtual void set_window_position(Gfx::IntPoint const&) override;
     virtual void maximize_window() override;
     virtual void minimize_window() override;
+    virtual Messages::WebDriverSessionClient::ExecuteScriptResponse execute_script(String const& body, Vector<String> const& json_arguments, Optional<u64> const& timeout, bool async) override;
     virtual Messages::WebDriverSessionClient::GetAllCookiesResponse get_all_cookies() override;
     virtual Messages::WebDriverSessionClient::GetNamedCookieResponse get_named_cookie(String const& name) override;
     virtual void add_cookie(Web::Cookie::ParsedCookie const&) override;
@@ -61,6 +62,7 @@ public:
     virtual Messages::WebDriverSessionClient::GetComputedValueForElementResponse get_computed_value_for_element(i32 element_id, String const& property_name) override;
     virtual Messages::WebDriverSessionClient::GetElementTextResponse get_element_text(i32 element_id) override;
     virtual Messages::WebDriverSessionClient::GetElementTagNameResponse get_element_tag_name(i32 element_id) override;
+    virtual Messages::WebDriverSessionClient::TakeScreenshotResponse take_screenshot() override;
 
 private:
     WebDriverConnection(NonnullOwnPtr<Core::Stream::LocalSocket> socket, NonnullRefPtr<BrowserWindow> browser_window);
