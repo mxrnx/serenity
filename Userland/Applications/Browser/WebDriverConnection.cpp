@@ -71,6 +71,51 @@ void WebDriverConnection::forward()
         browser_window->active_tab().go_forward();
 }
 
+Messages::WebDriverSessionClient::GetWindowRectResponse WebDriverConnection::get_window_rect()
+{
+    dbgln_if(WEBDRIVER_DEBUG, "WebDriverConnection: get_window_rect");
+    if (auto browser_window = m_browser_window.strong_ref())
+        return { browser_window->rect() };
+    return { {} };
+}
+
+void WebDriverConnection::restore_window()
+{
+    dbgln_if(WEBDRIVER_DEBUG, "WebDriverConnection: restore_window");
+    if (auto browser_window = m_browser_window.strong_ref()) {
+        browser_window->show();
+        browser_window->move_to_front();
+    }
+}
+
+void WebDriverConnection::set_window_size(Gfx::IntSize const& size)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "WebDriverConnection: set_window_size {}", size);
+    if (auto browser_window = m_browser_window.strong_ref())
+        browser_window->resize(size);
+}
+
+void WebDriverConnection::set_window_position(Gfx::IntPoint const& position)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "WebDriverConnection: set_window_position {}", position);
+    if (auto browser_window = m_browser_window.strong_ref())
+        browser_window->move_to(position);
+}
+
+void WebDriverConnection::maximize_window()
+{
+    dbgln_if(WEBDRIVER_DEBUG, "WebDriverConnection: maximize_window");
+    if (auto browser_window = m_browser_window.strong_ref())
+        browser_window->set_maximized(true);
+}
+
+void WebDriverConnection::minimize_window()
+{
+    dbgln_if(WEBDRIVER_DEBUG, "WebDriverConnection: minimize_window");
+    if (auto browser_window = m_browser_window.strong_ref())
+        browser_window->set_minimized(true);
+}
+
 Messages::WebDriverSessionClient::GetAllCookiesResponse WebDriverConnection::get_all_cookies()
 {
     dbgln_if(WEBDRIVER_DEBUG, "WebDriverConnection: get_cookies");

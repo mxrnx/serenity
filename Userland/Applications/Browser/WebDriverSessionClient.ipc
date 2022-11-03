@@ -1,5 +1,8 @@
 #include <AK/URL.h>
 #include <AK/Vector.h>
+#include <LibGfx/Point.h>
+#include <LibGfx/Rect.h>
+#include <LibGfx/Size.h>
 #include <LibWeb/Cookie/Cookie.h>
 #include <LibWeb/Cookie/ParsedCookie.h>
 
@@ -12,6 +15,12 @@ endpoint WebDriverSessionClient {
     refresh() =|
     back() =|
     forward() =|
+    get_window_rect() => (Gfx::IntRect rect)
+    restore_window() =|
+    set_window_size(Gfx::IntSize size) =|
+    set_window_position(Gfx::IntPoint position) =|
+    maximize_window() =|
+    minimize_window() =|
     get_all_cookies() => (Vector<Web::Cookie::Cookie> cookies)
     get_named_cookie(String name) => (Optional<Web::Cookie::Cookie> cookie)
     add_cookie(Web::Cookie::ParsedCookie cookie) =|

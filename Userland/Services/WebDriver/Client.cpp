@@ -36,6 +36,10 @@ Vector<Client::Route> Client::s_routes = {
     { HTTP::HttpRequest::Method::GET, { "session", ":session_id", "window" }, &Client::handle_get_window_handle },
     { HTTP::HttpRequest::Method::DELETE, { "session", ":session_id", "window" }, &Client::handle_close_window },
     { HTTP::HttpRequest::Method::GET, { "session", ":session_id", "window", "handles" }, &Client::handle_get_window_handles },
+    { HTTP::HttpRequest::Method::GET, { "session", ":session_id", "window", "rect" }, &Client::handle_get_window_rect },
+    { HTTP::HttpRequest::Method::POST, { "session", ":session_id", "window", "rect" }, &Client::handle_set_window_rect },
+    { HTTP::HttpRequest::Method::POST, { "session", ":session_id", "window", "maximize" }, &Client::handle_maximize_window },
+    { HTTP::HttpRequest::Method::POST, { "session", ":session_id", "window", "minimize" }, &Client::handle_minimize_window },
     { HTTP::HttpRequest::Method::POST, { "session", ":session_id", "element" }, &Client::handle_find_element },
     { HTTP::HttpRequest::Method::POST, { "session", ":session_id", "elements" }, &Client::handle_find_elements },
     { HTTP::HttpRequest::Method::POST, { "session", ":session_id", "element", ":element_id", "element" }, &Client::handle_find_element_from_element },
@@ -543,6 +547,46 @@ ErrorOr<JsonValue, WebDriverError> Client::handle_get_window_handles(Vector<Stri
     return make_json_value(result);
 }
 
+// 11.8.1 Get Window Rect, https://w3c.github.io/webdriver/#dfn-get-window-rect
+// GET /session/{session id}/window/rect
+ErrorOr<JsonValue, WebDriverError> Client::handle_get_window_rect(Vector<StringView> const& parameters, JsonValue const&)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling GET /session/<session_id>/window/rect");
+    auto* session = TRY(find_session_with_id(parameters[0]));
+    auto result = TRY(session->get_window_rect());
+    return make_json_value(result);
+}
+
+// 11.8.2 Set Window Rect, https://w3c.github.io/webdriver/#dfn-set-window-rect
+// POST /session/{session id}/window/rect
+ErrorOr<JsonValue, WebDriverError> Client::handle_set_window_rect(Vector<StringView> const& parameters, JsonValue const& payload)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/window/rect");
+    auto* session = TRY(find_session_with_id(parameters[0]));
+    auto result = TRY(session->set_window_rect(payload));
+    return make_json_value(result);
+}
+
+// 11.8.3 Maximize Window, https://w3c.github.io/webdriver/#dfn-maximize-window
+// POST /session/{session id}/window/maximize
+ErrorOr<JsonValue, WebDriverError> Client::handle_maximize_window(Vector<StringView> const& parameters, JsonValue const&)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/window/maximize");
+    auto* session = TRY(find_session_with_id(parameters[0]));
+    auto result = TRY(session->maximize_window());
+    return make_json_value(result);
+}
+
+// 11.8.4 Minimize Window, https://w3c.github.io/webdriver/#minimize-window
+// POST /session/{session id}/window/minimize
+ErrorOr<JsonValue, WebDriverError> Client::handle_minimize_window(Vector<StringView> const& parameters, JsonValue const&)
+{
+    dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/window/minimize");
+    auto* session = TRY(find_session_with_id(parameters[0]));
+    auto result = TRY(session->minimize_window());
+    return make_json_value(result);
+}
+
 // 12.3.2 Find Element, https://w3c.github.io/webdriver/#dfn-find-element
 // POST /session/{session id}/element
 ErrorOr<JsonValue, WebDriverError> Client::handle_find_element(Vector<StringView> const& parameters, JsonValue const& payload)
@@ -564,7 +608,7 @@ ErrorOr<JsonValue, WebDriverError> Client::handle_find_elements(Vector<StringVie
 }
 
 // 12.3.4 Find Element From Element, https://w3c.github.io/webdriver/#dfn-find-element-from-element
-// POST	/session/{session id}/element/{element id}/element
+// POST /session/{session id}/element/{element id}/element
 ErrorOr<JsonValue, WebDriverError> Client::handle_find_element_from_element(Vector<StringView> const& parameters, JsonValue const& payload)
 {
     dbgln_if(WEBDRIVER_DEBUG, "Handling POST /session/<session_id>/element/<element_id>/element");
@@ -594,7 +638,7 @@ ErrorOr<JsonValue, WebDriverError> Client::handle_get_element_attribute(Vector<S
 }
 
 // 12.4.3 Get Element Property, https://w3c.github.io/webdriver/#dfn-get-element-property
-// GET 	/session/{session id}/element/{element id}/property/{name}
+// GET /session/{session id}/element/{element id}/property/{name}
 ErrorOr<JsonValue, WebDriverError> Client::handle_get_element_property(Vector<StringView> const& parameters, JsonValue const& payload)
 {
     dbgln_if(WEBDRIVER_DEBUG, "Handling GET /session/<session_id>/element/<element_id>/property/<name>");
